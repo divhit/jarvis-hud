@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import HudOverlay from '@/components/HudOverlay';
+import VoiceAgent from '@/components/VoiceAgent';
 import TranscriptPanel from '@/components/panels/TranscriptPanel';
 
 const JarvisScene = dynamic(() => import('@/components/three/JarvisScene'), {
@@ -78,6 +79,9 @@ export default function Home() {
 
       {/* 2D HUD Overlay */}
       <HudOverlay />
+
+      {/* Voice Agent (ElevenLabs Conversational AI) */}
+      <VoiceAgent />
 
       {/* Transcript at bottom */}
       <TranscriptPanel />

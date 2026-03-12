@@ -9,6 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@11labs/client": "^0.2.0",
+    "@11labs/react": "^0.2.0",
+    "@elevenlabs/client": "^0.15.1",
+    "@elevenlabs/react": "^0.14.2",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@types/three": "^0.183.1",
