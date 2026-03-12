@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useJarvisStore } from '@/stores/jarvisStore';
 
 function Sparkline({ data, color }: { data: number[]; color: string }) {
@@ -35,17 +35,27 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
 
 export default function MarketsPanel() {
   const markets = useJarvisStore((s) => s.markets);
+  const marketsLive = useJarvisStore((s) => s.marketsLive);
+  const marketsLoading = useJarvisStore((s) => s.marketsLoading);
+  const fetchMarkets = useJarvisStore((s) => s.fetchMarkets);
+
+  useEffect(() => {
+    fetchMarkets();
+    const interval = setInterval(fetchMarkets, 5 * 60 * 1000); // 5 minutes
+    return () => clearInterval(interval);
+  }, [fetchMarkets]);
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ fontSize: '8px', letterSpacing: '3px', color: '#0088FF', marginBottom: '6px', opacity: 0.7 }}>
-        MARKET DATA // LIVE FEED
+        MARKET DATA // {marketsLoading ? 'UPDATING...' : marketsLive ? 'BTC LIVE' : 'CACHED'}
       </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '5px' }}>
         {markets.map((m) => {
           const isPositive = m.change >= 0;
           const changeColor = isPositive ? '#00FF88' : '#FF4444';
+          const isLive = m.symbol === 'BTC' && marketsLive;
 
           return (
             <div
@@ -55,14 +65,24 @@ export default function MarketsPanel() {
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '4px 6px',
-                border: '1px solid rgba(0,255,255,0.08)',
+                border: `1px solid ${isLive ? 'rgba(0,255,136,0.15)' : 'rgba(0,255,255,0.08)'}`,
                 borderRadius: '2px',
                 transition: 'border-color 0.3s',
               }}
             >
               <div style={{ minWidth: '45px' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, color: '#00FFFF' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: '#00FFFF', display: 'flex', alignItems: 'center', gap: '3px' }}>
                   {m.symbol}
+                  {isLive && (
+                    <span style={{
+                      width: '4px',
+                      height: '4px',
+                      borderRadius: '50%',
+                      background: '#00FF88',
+                      boxShadow: '0 0 4px #00FF88',
+                      display: 'inline-block',
+                    }} />
+                  )}
                 </div>
                 <div style={{ fontSize: '6px', color: '#006688' }}>{m.name}</div>
               </div>
@@ -85,7 +105,7 @@ export default function MarketsPanel() {
       </div>
 
       <div style={{ fontSize: '6px', color: '#004466', marginTop: '4px', textAlign: 'right' }}>
-        DELAYED 15MIN // MOCK DATA
+        {marketsLive ? 'BTC LIVE VIA COINGECKO // INDICES CACHED' : 'DELAYED // CACHED DATA'}
       </div>
     </div>
   );

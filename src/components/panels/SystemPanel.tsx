@@ -47,7 +47,15 @@ function StatusDot({ label, online = true }: { label: string; online?: boolean }
 
 export default function SystemPanel() {
   const system = useJarvisStore((s) => s.system);
+  const systemOnline = useJarvisStore((s) => s.systemOnline);
+  const fetchSystem = useJarvisStore((s) => s.fetchSystem);
   const [cpuAnim, setCpuAnim] = useState(system.cpu);
+
+  useEffect(() => {
+    fetchSystem();
+    const interval = setInterval(fetchSystem, 60 * 1000); // every 60s
+    return () => clearInterval(interval);
+  }, [fetchSystem]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -56,11 +64,20 @@ export default function SystemPanel() {
     return () => clearInterval(interval);
   }, [system.cpu]);
 
+  // Map Hermes services to HUD display names
+  const serviceMap: Record<string, string> = {
+    gateway: 'GATEWAY',
+    webhook: 'WEBHOOK',
+    telegram: 'TELEGRAM',
+  };
+
+  const hasServices = systemOnline && Object.keys(system.services).length > 0;
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ textAlign: 'center', marginBottom: '8px' }}>
         <div style={{ fontSize: '8px', letterSpacing: '3px', color: '#0088FF', opacity: 0.7, marginBottom: '2px' }}>
-          SYSTEM STATUS
+          SYSTEM STATUS {systemOnline ? '// LIVE' : ''}
         </div>
         <div style={{
           fontSize: '14px',
@@ -73,10 +90,10 @@ export default function SystemPanel() {
         </div>
         <div style={{
           fontSize: '7px',
-          color: '#00FF88',
+          color: system.status === 'ALL SYSTEMS NOMINAL' ? '#00FF88' : '#FFAA00',
           letterSpacing: '2px',
           marginTop: '2px',
-          textShadow: '0 0 8px rgba(0,255,136,0.5)',
+          textShadow: `0 0 8px ${system.status === 'ALL SYSTEMS NOMINAL' ? 'rgba(0,255,136,0.5)' : 'rgba(255,170,0,0.5)'}`,
         }}>
           {system.status}
         </div>
@@ -93,16 +110,28 @@ export default function SystemPanel() {
         borderRadius: '2px',
       }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          <StatusDot label="ARC REACTOR" />
-          <StatusDot label="COMM LINK" />
-          <StatusDot label="AI CORE" />
-          <StatusDot label="SENSORS" />
-          <StatusDot label="DEFENSE" online={true} />
+          {hasServices ? (
+            Object.entries(system.services).map(([key, status]) => (
+              <StatusDot
+                key={key}
+                label={serviceMap[key] || key.toUpperCase()}
+                online={status === 'running' || status === 'polling'}
+              />
+            ))
+          ) : (
+            <>
+              <StatusDot label="ARC REACTOR" />
+              <StatusDot label="COMM LINK" />
+              <StatusDot label="AI CORE" />
+              <StatusDot label="SENSORS" />
+              <StatusDot label="DEFENSE" online={true} />
+            </>
+          )}
         </div>
       </div>
 
       <div style={{ fontSize: '6px', color: '#004466', marginTop: 'auto', textAlign: 'center' }}>
-        UPTIME: {system.uptime}
+        UPTIME: {system.uptime} {systemOnline ? '// HERMES LIVE' : ''}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { fetchWeatherData, fetchMarketData, fetchSystemStatus, fetchInboxFromHermes } from '@/lib/api';
 
 interface Email {
   from: string;
@@ -19,6 +20,8 @@ interface WeatherData {
   condition: string;
   humidity: number;
   wind: number;
+  feelsLike: number;
+  uvIndex: number;
   icon: string;
 }
 
@@ -28,6 +31,7 @@ interface SystemData {
   network: number;
   status: string;
   uptime: string;
+  services: Record<string, string>;
 }
 
 interface TranscriptEntry {
@@ -41,16 +45,28 @@ interface JarvisState {
   setCurrentTime: (time: Date) => void;
 
   weather: WeatherData;
+  weatherLoading: boolean;
+  weatherError: string | null;
   setWeather: (weather: WeatherData) => void;
+  fetchWeather: () => Promise<void>;
 
   markets: MarketEntry[];
+  marketsLoading: boolean;
+  marketsLive: boolean; // true when BTC data is live
   setMarkets: (markets: MarketEntry[]) => void;
+  fetchMarkets: () => Promise<void>;
 
   inbox: { unread: number; urgent: number; emails: Email[] };
+  inboxLoading: boolean;
+  inboxLastSync: string;
   setInbox: (inbox: { unread: number; urgent: number; emails: Email[] }) => void;
+  fetchInbox: () => Promise<void>;
 
   system: SystemData;
+  systemLoading: boolean;
+  systemOnline: boolean;
   setSystem: (system: SystemData) => void;
+  fetchSystem: () => Promise<void>;
 
   transcript: TranscriptEntry[];
   addTranscript: (speaker: 'user' | 'jarvis', text: string) => void;
@@ -68,9 +84,33 @@ export const useJarvisStore = create<JarvisState>((set) => ({
     condition: 'Partly Cloudy',
     humidity: 72,
     wind: 14,
+    feelsLike: 6,
+    uvIndex: 3,
     icon: '\u26C5',
   },
+  weatherLoading: false,
+  weatherError: null,
   setWeather: (weather) => set({ weather }),
+  fetchWeather: async () => {
+    set({ weatherLoading: true, weatherError: null });
+    try {
+      const data = await fetchWeatherData();
+      set({
+        weather: {
+          temp: data.temp,
+          condition: data.condition,
+          humidity: data.humidity,
+          wind: data.wind,
+          feelsLike: data.feelsLike,
+          uvIndex: data.uvIndex,
+          icon: data.icon,
+        },
+        weatherLoading: false,
+      });
+    } catch {
+      set({ weatherLoading: false, weatherError: 'OFFLINE' });
+    }
+  },
 
   markets: [
     {
@@ -102,7 +142,18 @@ export const useJarvisStore = create<JarvisState>((set) => ({
       history: [95000, 95500, 96200, 96800, 97100, 97500, 97842],
     },
   ],
+  marketsLoading: false,
+  marketsLive: false,
   setMarkets: (markets) => set({ markets }),
+  fetchMarkets: async () => {
+    set({ marketsLoading: true });
+    try {
+      const data = await fetchMarketData();
+      set({ markets: data, marketsLoading: false, marketsLive: true });
+    } catch {
+      set({ marketsLoading: false, marketsLive: false });
+    }
+  },
 
   inbox: {
     unread: 3,
@@ -113,7 +164,22 @@ export const useJarvisStore = create<JarvisState>((set) => ({
       { from: 'Nick Fury', subject: 'Avengers Initiative Update', time: '1h ago' },
     ],
   },
+  inboxLoading: false,
+  inboxLastSync: 'MOCK DATA',
   setInbox: (inbox) => set({ inbox }),
+  fetchInbox: async () => {
+    set({ inboxLoading: true });
+    try {
+      const data = await fetchInboxFromHermes();
+      set({
+        inbox: data,
+        inboxLoading: false,
+        inboxLastSync: new Date().toLocaleTimeString(),
+      });
+    } catch {
+      set({ inboxLoading: false, inboxLastSync: 'SYNC FAILED' });
+    }
+  },
 
   system: {
     cpu: 23,
@@ -121,8 +187,34 @@ export const useJarvisStore = create<JarvisState>((set) => ({
     network: 99,
     status: 'ALL SYSTEMS NOMINAL',
     uptime: '847d 14h 22m',
+    services: {},
   },
+  systemLoading: false,
+  systemOnline: false,
   setSystem: (system) => set({ system }),
+  fetchSystem: async () => {
+    set({ systemLoading: true });
+    try {
+      const data = await fetchSystemStatus();
+      const allOnline = Object.values(data.services).every(
+        (s) => s === 'running' || s === 'polling'
+      );
+      set({
+        system: {
+          cpu: 15 + Math.floor(Math.random() * 20),
+          memory: 40 + Math.floor(Math.random() * 15),
+          network: allOnline ? 99 : 50,
+          status: data.status === 'online' ? 'ALL SYSTEMS NOMINAL' : 'SYSTEMS DEGRADED',
+          uptime: data.uptime_human,
+          services: data.services,
+        },
+        systemLoading: false,
+        systemOnline: true,
+      });
+    } catch {
+      set({ systemLoading: false, systemOnline: false });
+    }
+  },
 
   transcript: [
     { speaker: 'jarvis', text: 'Good evening, sir. All systems are online and operational.', timestamp: new Date() },
