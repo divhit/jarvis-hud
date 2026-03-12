@@ -1,7 +1,8 @@
 'use client';
 
-import React, { Suspense } from 'react';
-import { Canvas } from '@react-three/fiber';
+import React, { Suspense, useRef } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
 import HolographicPanel from './HolographicPanel';
 import ParticleField from './ParticleField';
 import ClockPanel from '../panels/ClockPanel';
@@ -9,6 +10,67 @@ import WeatherPanel from '../panels/WeatherPanel';
 import MarketsPanel from '../panels/MarketsPanel';
 import SystemPanel from '../panels/SystemPanel';
 import InboxPanel from '../panels/InboxPanel';
+import { useJarvisStore } from '@/stores/jarvisStore';
+
+interface FocusablePanelProps {
+  panelId: string;
+  basePosition: [number, number, number];
+  rotation?: [number, number, number];
+  width?: number;
+  height?: number;
+  color?: string;
+  children: React.ReactNode;
+}
+
+function FocusablePanel({
+  panelId,
+  basePosition,
+  rotation = [0, 0, 0],
+  width,
+  height,
+  color,
+  children,
+}: FocusablePanelProps) {
+  const groupRef = useRef<THREE.Group>(null);
+  const focusedPanel = useJarvisStore((s) => s.focusedPanel);
+  const isFocused = focusedPanel === panelId;
+  const targetZ = useRef(0);
+  const currentZ = useRef(0);
+  const targetScale = useRef(1);
+  const currentScale = useRef(1);
+
+  useFrame(() => {
+    if (!groupRef.current) return;
+
+    targetZ.current = isFocused ? 2.5 : 0;
+    targetScale.current = isFocused ? 1.15 : 1;
+
+    currentZ.current = THREE.MathUtils.lerp(currentZ.current, targetZ.current, 0.06);
+    currentScale.current = THREE.MathUtils.lerp(currentScale.current, targetScale.current, 0.06);
+
+    groupRef.current.position.z = basePosition[2] + currentZ.current;
+    groupRef.current.scale.setScalar(currentScale.current);
+  });
+
+  return (
+    <group
+      ref={groupRef}
+      position={[basePosition[0], basePosition[1], basePosition[2]]}
+    >
+      <HolographicPanel
+        position={[0, 0, 0]}
+        rotation={rotation}
+        width={width}
+        height={height}
+        color={color}
+        opacity={isFocused ? 0.2 : 0.12}
+        glitchIntensity={isFocused ? 0.8 : 0.5}
+      >
+        {children}
+      </HolographicPanel>
+    </group>
+  );
+}
 
 function SceneContent() {
   return (
@@ -24,54 +86,59 @@ function SceneContent() {
 
       {/* Panel layout in an arc */}
       {/* Top row: 3 panels */}
-      <HolographicPanel
-        position={[-3.8, 1.6, -1]}
+      <FocusablePanel
+        panelId="clock"
+        basePosition={[-3.8, 1.6, -1]}
         rotation={[0, 0.2, 0]}
         width={2.8}
         height={2.2}
       >
         <ClockPanel />
-      </HolographicPanel>
+      </FocusablePanel>
 
-      <HolographicPanel
-        position={[0, 2, -2]}
+      <FocusablePanel
+        panelId="system"
+        basePosition={[0, 2, -2]}
         rotation={[0, 0, 0]}
         width={3.2}
         height={2.2}
         color="#0088FF"
       >
         <SystemPanel />
-      </HolographicPanel>
+      </FocusablePanel>
 
-      <HolographicPanel
-        position={[3.8, 1.6, -1]}
+      <FocusablePanel
+        panelId="weather"
+        basePosition={[3.8, 1.6, -1]}
         rotation={[0, -0.2, 0]}
         width={2.8}
         height={2.2}
       >
         <WeatherPanel />
-      </HolographicPanel>
+      </FocusablePanel>
 
       {/* Bottom row: 2 panels */}
-      <HolographicPanel
-        position={[-2.5, -1.2, -0.5]}
+      <FocusablePanel
+        panelId="markets"
+        basePosition={[-2.5, -1.2, -0.5]}
         rotation={[0, 0.15, 0]}
         width={3.5}
         height={2.4}
         color="#00DDFF"
       >
         <MarketsPanel />
-      </HolographicPanel>
+      </FocusablePanel>
 
-      <HolographicPanel
-        position={[2.5, -1.2, -0.5]}
+      <FocusablePanel
+        panelId="inbox"
+        basePosition={[2.5, -1.2, -0.5]}
         rotation={[0, -0.15, 0]}
         width={3.5}
         height={2.4}
         color="#0099FF"
       >
         <InboxPanel />
-      </HolographicPanel>
+      </FocusablePanel>
     </>
   );
 }

@@ -7,6 +7,11 @@ import { useWakeWord } from '@/hooks/useWakeWord';
 
 export default function VoiceAgent() {
   const addTranscript = useJarvisStore((s) => s.addTranscript);
+  const focusPanel = useJarvisStore((s) => s.focusPanel);
+  const fetchWeather = useJarvisStore((s) => s.fetchWeather);
+  const fetchMarkets = useJarvisStore((s) => s.fetchMarkets);
+  const fetchSystem = useJarvisStore((s) => s.fetchSystem);
+  const fetchInbox = useJarvisStore((s) => s.fetchInbox);
   const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
 
   const conversation = useConversation({
@@ -15,7 +20,6 @@ export default function VoiceAgent() {
     },
     onDisconnect: () => {
       addTranscript('jarvis', 'Voice link terminated.');
-      // Resume wake word listening after conversation ends
       setWakeWordEnabled(true);
     },
     onMessage: (message) => {
@@ -26,6 +30,29 @@ export default function VoiceAgent() {
       console.error('ElevenLabs error:', error);
       addTranscript('jarvis', 'Voice interface error. Reconnecting...');
       setWakeWordEnabled(true);
+    },
+    clientTools: {
+      show_panel: async (parameters: { panel_id: string }) => {
+        const { panel_id } = parameters;
+        console.log('[JARVIS] Client tool: show_panel', panel_id);
+
+        // Focus the panel in the 3D HUD
+        focusPanel(panel_id);
+
+        // Refresh data for the focused panel
+        try {
+          switch (panel_id) {
+            case 'weather': await fetchWeather(); break;
+            case 'markets': await fetchMarkets(); break;
+            case 'system': await fetchSystem(); break;
+            case 'inbox': await fetchInbox(); break;
+          }
+        } catch (e) {
+          console.error('[JARVIS] Panel data refresh failed:', e);
+        }
+
+        return `Panel ${panel_id} is now highlighted on the display.`;
+      },
     },
   });
 

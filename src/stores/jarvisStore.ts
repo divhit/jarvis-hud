@@ -73,6 +73,9 @@ interface JarvisState {
 
   activePanel: string | null;
   setActivePanel: (panel: string | null) => void;
+
+  focusedPanel: string | null;
+  focusPanel: (panel: string | null) => void;
 }
 
 export const useJarvisStore = create<JarvisState>((set) => ({
@@ -227,4 +230,13 @@ export const useJarvisStore = create<JarvisState>((set) => ({
 
   activePanel: null,
   setActivePanel: (panel) => set({ activePanel: panel }),
+
+  focusedPanel: null,
+  focusPanel: (panel) => {
+    set({ focusedPanel: panel });
+    // Auto-clear focus after 8 seconds
+    if (panel) {
+      setTimeout(() => set({ focusedPanel: null }), 8000);
+    }
+  },
 }));
