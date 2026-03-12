@@ -31,27 +31,27 @@ export default function VoiceAgent() {
       addTranscript('jarvis', 'Voice interface error. Reconnecting...');
       setWakeWordEnabled(true);
     },
+    onUnhandledClientToolCall: (params) => {
+      console.warn('[JARVIS] Unhandled client tool call:', params);
+    },
     clientTools: {
-      show_panel: async (parameters: { panel_id: string }) => {
+      show_panel: (parameters: { panel_id: string }) => {
         const { panel_id } = parameters;
         console.log('[JARVIS] Client tool: show_panel', panel_id);
 
         // Focus the panel in the 3D HUD
         focusPanel(panel_id);
 
-        // Refresh data for the focused panel
-        try {
-          switch (panel_id) {
-            case 'weather': await fetchWeather(); break;
-            case 'markets': await fetchMarkets(); break;
-            case 'system': await fetchSystem(); break;
-            case 'inbox': await fetchInbox(); break;
-          }
-        } catch (e) {
-          console.error('[JARVIS] Panel data refresh failed:', e);
+        // Fire-and-forget data refresh — do NOT await (ElevenLabs times out on slow tools)
+        switch (panel_id) {
+          case 'weather': fetchWeather().catch(() => {}); break;
+          case 'markets': fetchMarkets().catch(() => {}); break;
+          case 'system': fetchSystem().catch(() => {}); break;
+          case 'inbox': fetchInbox().catch(() => {}); break;
         }
 
-        return `Panel ${panel_id} is now highlighted on the display.`;
+        // Return immediately so ElevenLabs doesn't timeout
+        return `Panel ${panel_id} is now highlighted on the HUD display with fresh data.`;
       },
     },
   });
