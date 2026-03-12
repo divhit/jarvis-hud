@@ -21,6 +21,21 @@ export default function VoiceAgent() {
     };
   }, []);
 
+  // Keyboard shortcuts for testing panel focus (1-5 keys)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const map: Record<string, string> = { '1': 'clock', '2': 'system', '3': 'weather', '4': 'markets', '5': 'inbox' };
+      const panel = map[e.key];
+      if (panel) {
+        console.log('[JARVIS] Keyboard focus:', panel);
+        useJarvisStore.getState().focusPanel(panel);
+        addTranscript('jarvis', `[DEBUG] Panel focused: ${panel}`);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [addTranscript]);
+
   const startConversation = useCallback(async () => {
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -44,6 +59,8 @@ export default function VoiceAgent() {
               const panelId = String(parameters?.panel_id || 'system');
               console.log('[JARVIS] show_panel called:', panelId);
 
+              // Visible debug - add to transcript so user can see tool fired
+              useJarvisStore.getState().addTranscript('jarvis', `[HUD] Focusing panel: ${panelId.toUpperCase()}`);
               useJarvisStore.getState().focusPanel(panelId);
 
               const store = useJarvisStore.getState();
