@@ -7,11 +7,6 @@ import { useWakeWord } from '@/hooks/useWakeWord';
 
 export default function VoiceAgent() {
   const addTranscript = useJarvisStore((s) => s.addTranscript);
-  const focusPanel = useJarvisStore((s) => s.focusPanel);
-  const fetchWeather = useJarvisStore((s) => s.fetchWeather);
-  const fetchMarkets = useJarvisStore((s) => s.fetchMarkets);
-  const fetchSystem = useJarvisStore((s) => s.fetchSystem);
-  const fetchInbox = useJarvisStore((s) => s.fetchInbox);
   const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
 
   const conversation = useConversation({
@@ -37,29 +32,6 @@ export default function VoiceAgent() {
       console.warn('[JARVIS] Unhandled tool:', JSON.stringify(toolCall));
       addTranscript('jarvis', `Unhandled tool call: ${toolCall?.tool_name || 'unknown'}`);
     },
-    clientTools: {
-      show_panel: (parameters: Record<string, unknown>) => {
-        try {
-          const panelId = String(parameters?.panel_id || 'system');
-          console.log('[JARVIS] show_panel called:', panelId);
-          focusPanel(panelId);
-
-          // Fire-and-forget data refresh
-          const refreshMap: Record<string, () => Promise<void>> = {
-            weather: fetchWeather,
-            markets: fetchMarkets,
-            system: fetchSystem,
-            inbox: fetchInbox,
-          };
-          refreshMap[panelId]?.().catch(() => {});
-
-          return `Panel ${panelId} is now displayed on the holographic HUD.`;
-        } catch (e) {
-          console.error('[JARVIS] show_panel error:', e);
-          return 'Panel display updated.';
-        }
-      },
-    },
   });
 
   const startConversation = useCallback(async () => {
@@ -74,7 +46,41 @@ export default function VoiceAgent() {
       }
 
       setWakeWordEnabled(false);
-      await conversation.startSession({ agentId, connectionType: 'websocket' });
+
+      // Client tools for HUD control - defined here so they're passed to the session
+      const clientTools = {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        show_panel: (parameters: any) => {
+          try {
+            const panelId = String(parameters?.panel_id || 'system');
+            console.log('[JARVIS] show_panel called:', panelId);
+
+            // Focus the panel in the 3D HUD
+            useJarvisStore.getState().focusPanel(panelId);
+
+            // Fire-and-forget data refresh
+            const store = useJarvisStore.getState();
+            const refreshMap: Record<string, () => Promise<void>> = {
+              weather: store.fetchWeather,
+              markets: store.fetchMarkets,
+              system: store.fetchSystem,
+              inbox: store.fetchInbox,
+            };
+            refreshMap[panelId]?.().catch(() => {});
+
+            return `Panel ${panelId} is now displayed on the holographic HUD with live data.`;
+          } catch (e) {
+            console.error('[JARVIS] show_panel error:', e);
+            return 'Panel display updated.';
+          }
+        },
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (conversation as any).startSession({
+        agentId,
+        clientTools,
+      });
     } catch (err) {
       console.error('Failed to start conversation:', err);
       addTranscript('jarvis', 'Failed to initialize voice interface. Check microphone permissions.');

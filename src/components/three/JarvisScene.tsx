@@ -34,23 +34,35 @@ function FocusablePanel({
   const groupRef = useRef<THREE.Group>(null);
   const focusedPanel = useJarvisStore((s) => s.focusedPanel);
   const isFocused = focusedPanel === panelId;
-  const targetZ = useRef(0);
-  const currentZ = useRef(0);
-  const targetScale = useRef(1);
+
+  // Animated values
+  const currentPos = useRef(new THREE.Vector3(...basePosition));
   const currentScale = useRef(1);
+  const currentOpacity = useRef(0.12);
+
+  // When focused: fly to center-front of camera
+  const focusedPos = new THREE.Vector3(0, 0.5, 3);
+  const basePos = new THREE.Vector3(...basePosition);
 
   useFrame(() => {
     if (!groupRef.current) return;
 
-    targetZ.current = isFocused ? 2.5 : 0;
-    targetScale.current = isFocused ? 1.15 : 1;
+    const targetPos = isFocused ? focusedPos : basePos;
+    const targetScale = isFocused ? 1.4 : 1;
+    const targetOpacity = isFocused ? 0.25 : 0.12;
+    const lerpSpeed = 0.08;
 
-    currentZ.current = THREE.MathUtils.lerp(currentZ.current, targetZ.current, 0.06);
-    currentScale.current = THREE.MathUtils.lerp(currentScale.current, targetScale.current, 0.06);
+    currentPos.current.lerp(targetPos, lerpSpeed);
+    currentScale.current = THREE.MathUtils.lerp(currentScale.current, targetScale, lerpSpeed);
+    currentOpacity.current = THREE.MathUtils.lerp(currentOpacity.current, targetOpacity, lerpSpeed);
 
-    groupRef.current.position.z = basePosition[2] + currentZ.current;
+    groupRef.current.position.copy(currentPos.current);
     groupRef.current.scale.setScalar(currentScale.current);
   });
+
+  // Dim unfocused panels when something is focused
+  const somethingFocused = focusedPanel !== null;
+  const dimmed = somethingFocused && !isFocused;
 
   return (
     <group
@@ -59,12 +71,12 @@ function FocusablePanel({
     >
       <HolographicPanel
         position={[0, 0, 0]}
-        rotation={rotation}
+        rotation={isFocused ? [0, 0, 0] : rotation}
         width={width}
         height={height}
-        color={color}
-        opacity={isFocused ? 0.2 : 0.12}
-        glitchIntensity={isFocused ? 0.8 : 0.5}
+        color={isFocused ? '#00FFFF' : dimmed ? '#003344' : color}
+        opacity={dimmed ? 0.04 : isFocused ? 0.25 : 0.12}
+        glitchIntensity={isFocused ? 1.0 : 0.5}
       >
         {children}
       </HolographicPanel>
