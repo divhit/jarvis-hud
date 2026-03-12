@@ -26,32 +26,38 @@ export default function VoiceAgent() {
       const speaker = message.source === 'user' ? 'user' : 'jarvis';
       addTranscript(speaker, message.message);
     },
-    onError: (error) => {
-      console.error('ElevenLabs error:', error);
-      addTranscript('jarvis', 'Voice interface error. Reconnecting...');
+    onError: (error, context) => {
+      const errorMsg = typeof error === 'string' ? error : String(error);
+      const contextStr = context ? JSON.stringify(context) : '';
+      console.error('[JARVIS] ElevenLabs error:', errorMsg, contextStr);
+      addTranscript('jarvis', `Error: ${errorMsg.substring(0, 150)}`);
       setWakeWordEnabled(true);
     },
-    onUnhandledClientToolCall: (params) => {
-      console.warn('[JARVIS] Unhandled client tool call:', params);
+    onUnhandledClientToolCall: (toolCall) => {
+      console.warn('[JARVIS] Unhandled tool:', JSON.stringify(toolCall));
+      addTranscript('jarvis', `Unhandled tool call: ${toolCall?.tool_name || 'unknown'}`);
     },
     clientTools: {
-      show_panel: (parameters: { panel_id: string }) => {
-        const { panel_id } = parameters;
-        console.log('[JARVIS] Client tool: show_panel', panel_id);
+      show_panel: (parameters: Record<string, unknown>) => {
+        try {
+          const panelId = String(parameters?.panel_id || 'system');
+          console.log('[JARVIS] show_panel called:', panelId);
+          focusPanel(panelId);
 
-        // Focus the panel in the 3D HUD
-        focusPanel(panel_id);
+          // Fire-and-forget data refresh
+          const refreshMap: Record<string, () => Promise<void>> = {
+            weather: fetchWeather,
+            markets: fetchMarkets,
+            system: fetchSystem,
+            inbox: fetchInbox,
+          };
+          refreshMap[panelId]?.().catch(() => {});
 
-        // Fire-and-forget data refresh — do NOT await (ElevenLabs times out on slow tools)
-        switch (panel_id) {
-          case 'weather': fetchWeather().catch(() => {}); break;
-          case 'markets': fetchMarkets().catch(() => {}); break;
-          case 'system': fetchSystem().catch(() => {}); break;
-          case 'inbox': fetchInbox().catch(() => {}); break;
+          return `Panel ${panelId} is now displayed on the holographic HUD.`;
+        } catch (e) {
+          console.error('[JARVIS] show_panel error:', e);
+          return 'Panel display updated.';
         }
-
-        // Return immediately so ElevenLabs doesn't timeout
-        return `Panel ${panel_id} is now highlighted on the HUD display with fresh data.`;
       },
     },
   });
