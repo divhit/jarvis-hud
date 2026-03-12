@@ -1,42 +1,28 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
-import { useConversation } from '@elevenlabs/react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
+import { Conversation, type SessionConfig, type Callbacks, type ClientToolsConfig } from '@elevenlabs/client';
 import { useJarvisStore } from '@/stores/jarvisStore';
 import { useWakeWord } from '@/hooks/useWakeWord';
+
+type ConversationStatus = 'disconnected' | 'connecting' | 'connected';
 
 export default function VoiceAgent() {
   const addTranscript = useJarvisStore((s) => s.addTranscript);
   const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
+  const [status, setStatus] = useState<ConversationStatus>('disconnected');
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const conversationRef = useRef<Conversation | null>(null);
 
-  const conversation = useConversation({
-    onConnect: () => {
-      addTranscript('jarvis', 'Voice link established. How may I assist you, sir?');
-    },
-    onDisconnect: () => {
-      addTranscript('jarvis', 'Voice link terminated.');
-      setWakeWordEnabled(true);
-    },
-    onMessage: (message) => {
-      const speaker = message.source === 'user' ? 'user' : 'jarvis';
-      addTranscript(speaker, message.message);
-    },
-    onError: (error, context) => {
-      const errorMsg = typeof error === 'string' ? error : String(error);
-      const contextStr = context ? JSON.stringify(context) : '';
-      console.error('[JARVIS] ElevenLabs error:', errorMsg, contextStr);
-      addTranscript('jarvis', `Error: ${errorMsg.substring(0, 150)}`);
-      setWakeWordEnabled(true);
-    },
-    onUnhandledClientToolCall: (toolCall) => {
-      console.warn('[JARVIS] Unhandled tool:', JSON.stringify(toolCall));
-      addTranscript('jarvis', `Unhandled tool call: ${toolCall?.tool_name || 'unknown'}`);
-    },
-  });
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      conversationRef.current?.endSession();
+    };
+  }, []);
 
   const startConversation = useCallback(async () => {
     try {
-      // Request mic permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
       const agentId = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID;
@@ -46,59 +32,85 @@ export default function VoiceAgent() {
       }
 
       setWakeWordEnabled(false);
+      setStatus('connecting');
 
-      // Client tools for HUD control - defined here so they're passed to the session
-      const clientTools = {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        show_panel: (parameters: any) => {
-          try {
-            const panelId = String(parameters?.panel_id || 'system');
-            console.log('[JARVIS] show_panel called:', panelId);
+      // Use Conversation SDK directly (bypassing useConversation hook which drops clientTools)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const options: any = {
+        agentId,
+        clientTools: {
+          show_panel: (parameters: { panel_id?: string }) => {
+            try {
+              const panelId = String(parameters?.panel_id || 'system');
+              console.log('[JARVIS] show_panel called:', panelId);
 
-            // Focus the panel in the 3D HUD
-            useJarvisStore.getState().focusPanel(panelId);
+              useJarvisStore.getState().focusPanel(panelId);
 
-            // Fire-and-forget data refresh
-            const store = useJarvisStore.getState();
-            const refreshMap: Record<string, () => Promise<void>> = {
-              weather: store.fetchWeather,
-              markets: store.fetchMarkets,
-              system: store.fetchSystem,
-              inbox: store.fetchInbox,
-            };
-            refreshMap[panelId]?.().catch(() => {});
+              const store = useJarvisStore.getState();
+              const refreshMap: Record<string, () => Promise<void>> = {
+                weather: store.fetchWeather,
+                markets: store.fetchMarkets,
+                system: store.fetchSystem,
+                inbox: store.fetchInbox,
+              };
+              refreshMap[panelId]?.().catch(() => {});
 
-            return `Panel ${panelId} is now displayed on the holographic HUD with live data.`;
-          } catch (e) {
-            console.error('[JARVIS] show_panel error:', e);
-            return 'Panel display updated.';
-          }
+              return `Panel ${panelId} is now displayed on the holographic HUD with live data. Current panel contents are visible.`;
+            } catch (e) {
+              console.error('[JARVIS] show_panel error:', e);
+              return 'Panel display updated.';
+            }
+          },
+        },
+        onConnect: () => {
+          setStatus('connected');
+          addTranscript('jarvis', 'Voice link established. How may I assist you, sir?');
+        },
+        onDisconnect: () => {
+          setStatus('disconnected');
+          setIsSpeaking(false);
+          conversationRef.current = null;
+          addTranscript('jarvis', 'Voice link terminated.');
+          setWakeWordEnabled(true);
+        },
+        onMessage: (message: { source: string; message: string }) => {
+          const speaker = message.source === 'user' ? 'user' : 'jarvis';
+          addTranscript(speaker, message.message);
+        },
+        onError: (error: string, context: unknown) => {
+          const errorMsg = typeof error === 'string' ? error : String(error);
+          console.error('[JARVIS] ElevenLabs error:', errorMsg, context);
+          addTranscript('jarvis', `Error: ${errorMsg.substring(0, 150)}`);
+        },
+        onModeChange: ({ mode }: { mode: string }) => {
+          setIsSpeaking(mode === 'speaking');
+        },
+        onUnhandledClientToolCall: (toolCall: { tool_name?: string }) => {
+          console.warn('[JARVIS] Unhandled tool:', JSON.stringify(toolCall));
         },
       };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (conversation as any).startSession({
-        agentId,
-        clientTools,
-      });
+      const conversation = await Conversation.startSession(options);
+      conversationRef.current = conversation;
     } catch (err) {
       console.error('Failed to start conversation:', err);
       addTranscript('jarvis', 'Failed to initialize voice interface. Check microphone permissions.');
+      setStatus('disconnected');
       setWakeWordEnabled(true);
     }
-  }, [conversation, addTranscript]);
+  }, [addTranscript]);
 
   const endConversation = useCallback(async () => {
-    await conversation.endSession();
-  }, [conversation]);
+    await conversationRef.current?.endSession();
+  }, []);
 
   const handleClick = useCallback(() => {
-    if (conversation.status === 'connected') {
+    if (status === 'connected') {
       endConversation();
-    } else if (conversation.status === 'disconnected') {
+    } else if (status === 'disconnected') {
       startConversation();
     }
-  }, [conversation.status, startConversation, endConversation]);
+  }, [status, startConversation, endConversation]);
 
   // Wake word detection
   const { isListening: wakeWordActive, isSupported: wakeWordSupported } = useWakeWord({
@@ -106,12 +118,11 @@ export default function VoiceAgent() {
       addTranscript('user', 'JARVIS');
       startConversation();
     },
-    enabled: wakeWordEnabled && conversation.status === 'disconnected',
+    enabled: wakeWordEnabled && status === 'disconnected',
   });
 
-  const isConnected = conversation.status === 'connected';
-  const isConnecting = conversation.status === 'connecting';
-  const isSpeaking = conversation.isSpeaking;
+  const isConnected = status === 'connected';
+  const isConnecting = status === 'connecting';
 
   // Status text
   let statusText = 'CLICK TO ACTIVATE';
@@ -303,7 +314,7 @@ export default function VoiceAgent() {
               color: '#004466',
             }}
           >
-            {conversation.status.toUpperCase()}
+            {status.toUpperCase()}
           </span>
         </div>
       </div>

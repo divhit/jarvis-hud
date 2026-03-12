@@ -78,7 +78,13 @@ interface JarvisState {
   focusPanel: (panel: string | null) => void;
 }
 
-export const useJarvisStore = create<JarvisState>((set) => ({
+export const useJarvisStore = create<JarvisState>((set) => {
+  // Expose store for testing
+  if (typeof window !== 'undefined') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__JARVIS_STORE__ = { getState: () => useJarvisStore.getState() };
+  }
+  return ({
   currentTime: new Date(),
   setCurrentTime: (time) => set({ currentTime: time }),
 
@@ -239,4 +245,4 @@ export const useJarvisStore = create<JarvisState>((set) => ({
       setTimeout(() => set({ focusedPanel: null }), 8000);
     }
   },
-}));
+})});
