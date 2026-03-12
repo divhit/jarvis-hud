@@ -7,7 +7,7 @@ import * as THREE from 'three';
 export default function ParticleField({ count = 500 }: { count?: number }) {
   const pointsRef = useRef<THREE.Points>(null);
 
-  const { positions, velocities } = useMemo(() => {
+  const { geometry, velocities } = useMemo(() => {
     const positions = new Float32Array(count * 3);
     const velocities = new Float32Array(count * 3);
 
@@ -21,13 +21,16 @@ export default function ParticleField({ count = 500 }: { count?: number }) {
       velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.001;
     }
 
-    return { positions, velocities };
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+    return { geometry, velocities };
   }, [count]);
 
   useFrame(() => {
     if (!pointsRef.current) return;
-    const geometry = pointsRef.current.geometry;
-    const posArray = geometry.attributes.position.array as Float32Array;
+    const geo = pointsRef.current.geometry;
+    const posArray = geo.attributes.position.array as Float32Array;
 
     for (let i = 0; i < count; i++) {
       posArray[i * 3] += velocities[i * 3];
@@ -40,18 +43,11 @@ export default function ParticleField({ count = 500 }: { count?: number }) {
       if (Math.abs(posArray[i * 3 + 2]) > 10) velocities[i * 3 + 2] *= -1;
     }
 
-    geometry.attributes.position.needsUpdate = true;
+    geo.attributes.position.needsUpdate = true;
   });
 
   return (
-    <points ref={pointsRef}>
-      <bufferGeometry>
-        <bufferAttribute
-          attach="attributes-position"
-          args={[positions, 3]}
-          count={count}
-        />
-      </bufferGeometry>
+    <points ref={pointsRef} geometry={geometry}>
       <pointsMaterial
         color="#00FFFF"
         size={0.03}

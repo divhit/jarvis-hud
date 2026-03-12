@@ -10,12 +10,11 @@ const vertexShader = `
   uniform float uGlitch;
   varying vec2 vUv;
   varying vec3 vNormal;
-  varying vec3 vPosition;
+  varying vec3 vWorldPosition;
 
   void main() {
     vUv = uv;
     vNormal = normalize(normalMatrix * normal);
-    vPosition = position;
 
     vec3 pos = position;
 
@@ -23,6 +22,9 @@ const vertexShader = `
     float glitchStrength = uGlitch * step(0.97, fract(sin(uTime * 43.0) * 4375.5453));
     pos.x += glitchStrength * sin(pos.y * 50.0 + uTime * 10.0) * 0.02;
     pos.y += glitchStrength * cos(pos.x * 50.0 + uTime * 8.0) * 0.01;
+
+    vec4 worldPos = modelMatrix * vec4(pos, 1.0);
+    vWorldPosition = worldPos.xyz;
 
     gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
   }
@@ -35,7 +37,7 @@ const fragmentShader = `
   uniform float uOpacity;
   varying vec2 vUv;
   varying vec3 vNormal;
-  varying vec3 vPosition;
+  varying vec3 vWorldPosition;
 
   void main() {
     // Base color
@@ -46,7 +48,7 @@ const fragmentShader = `
     scanline = smoothstep(0.3, 0.7, scanline) * 0.15 + 0.85;
 
     // Fresnel edge glow
-    vec3 viewDir = normalize(cameraPosition - vPosition);
+    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
     float fresnel = 1.0 - max(dot(viewDir, vNormal), 0.0);
     fresnel = pow(fresnel, 2.5);
 
@@ -153,13 +155,14 @@ export default function HolographicPanel({
       <Html
         transform
         occlude={false}
-        position={[0, 0, 0.01]}
+        position={[0, 0, 0.02]}
         style={{
-          width: `${width * 120}px`,
-          height: `${height * 120}px`,
+          width: `${width * 145}px`,
+          height: `${height * 145}px`,
           pointerEvents: 'none',
         }}
         distanceFactor={1.5}
+        zIndexRange={[50, 0]}
       >
         <div
           style={{
@@ -168,9 +171,11 @@ export default function HolographicPanel({
             color: '#00FFFF',
             fontFamily: "'JetBrains Mono', monospace",
             fontSize: '11px',
-            padding: '12px',
+            padding: '14px',
             overflow: 'hidden',
             pointerEvents: 'auto',
+            background: 'rgba(0, 5, 15, 0.6)',
+            borderRadius: '2px',
           }}
         >
           {children}
