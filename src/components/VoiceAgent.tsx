@@ -1,11 +1,83 @@
 'use client';
 
 import React, { useCallback, useState, useRef, useEffect } from 'react';
-import { Conversation, type SessionConfig, type Callbacks, type ClientToolsConfig } from '@elevenlabs/client';
+import { Conversation } from '@elevenlabs/client';
 import { useJarvisStore } from '@/stores/jarvisStore';
 import { useWakeWord } from '@/hooks/useWakeWord';
 
 type ConversationStatus = 'disconnected' | 'connecting' | 'connected';
+
+/**
+ * Intercept WebSocket to handle client_tool_call messages directly.
+ *
+ * VoiceConversation in @elevenlabs/client has a bug where clientTools
+ * handlers never fire in the browser (works in Node.js with TextConversation).
+ * This interceptor catches tool calls at the WebSocket level and responds
+ * before the SDK's broken handler can timeout.
+ */
+function installToolInterceptor(
+  clientTools: Record<string, (params: Record<string, unknown>) => string | Promise<string>>
+) {
+  const OriginalWebSocket = window.WebSocket;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const PatchedWebSocket = function (this: WebSocket, url: string | URL, protocols?: string | string[]) {
+    const ws = new OriginalWebSocket(url, protocols);
+    const urlStr = typeof url === 'string' ? url : url.toString();
+
+    // Only intercept ElevenLabs ConvAI WebSocket
+    if (urlStr.includes('elevenlabs.io') && urlStr.includes('convai')) {
+      const origSend = ws.send.bind(ws);
+
+      ws.addEventListener('message', async (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'client_tool_call' && data.client_tool_call) {
+            const { tool_name, tool_call_id, parameters } = data.client_tool_call;
+            console.log('[JARVIS] Intercepted tool call:', tool_name, parameters);
+
+            if (clientTools[tool_name]) {
+              try {
+                const result = await Promise.resolve(clientTools[tool_name](parameters || {}));
+                const resultStr = typeof result === 'object' ? JSON.stringify(result) : String(result);
+
+                origSend(JSON.stringify({
+                  type: 'client_tool_result',
+                  tool_call_id,
+                  result: resultStr,
+                  is_error: false,
+                }));
+                console.log('[JARVIS] Tool result sent:', resultStr.substring(0, 100));
+              } catch (err) {
+                origSend(JSON.stringify({
+                  type: 'client_tool_result',
+                  tool_call_id,
+                  result: `Error: ${err instanceof Error ? err.message : String(err)}`,
+                  is_error: true,
+                }));
+              }
+            }
+          }
+        } catch {
+          // Not JSON or not a tool call — ignore
+        }
+      });
+    }
+
+    return ws;
+  } as unknown as typeof WebSocket;
+
+  // Copy prototype so instanceof checks work
+  Object.setPrototypeOf(PatchedWebSocket, OriginalWebSocket);
+  PatchedWebSocket.prototype = OriginalWebSocket.prototype;
+
+  window.WebSocket = PatchedWebSocket;
+
+  // Return cleanup function
+  return () => {
+    window.WebSocket = OriginalWebSocket;
+  };
+}
 
 export default function VoiceAgent() {
   const addTranscript = useJarvisStore((s) => s.addTranscript);
@@ -13,11 +85,13 @@ export default function VoiceAgent() {
   const [status, setStatus] = useState<ConversationStatus>('disconnected');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const conversationRef = useRef<Conversation | null>(null);
+  const cleanupInterceptorRef = useRef<(() => void) | null>(null);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       conversationRef.current?.endSession();
+      cleanupInterceptorRef.current?.();
     };
   }, []);
 
@@ -36,6 +110,29 @@ export default function VoiceAgent() {
     return () => window.removeEventListener('keydown', handler);
   }, [addTranscript]);
 
+  // Client tool handlers
+  const clientToolHandlers: Record<string, (params: Record<string, unknown>) => string> = {
+    show_panel: (parameters) => {
+      const panelId = String(parameters?.panel_id || 'system');
+      console.log('[JARVIS] show_panel executed:', panelId);
+
+      useJarvisStore.getState().addTranscript('jarvis', `[HUD] Focusing panel: ${panelId.toUpperCase()}`);
+      useJarvisStore.getState().focusPanel(panelId);
+
+      // Fire-and-forget data refresh
+      const store = useJarvisStore.getState();
+      const refreshMap: Record<string, () => Promise<void>> = {
+        weather: store.fetchWeather,
+        markets: store.fetchMarkets,
+        system: store.fetchSystem,
+        inbox: store.fetchInbox,
+      };
+      refreshMap[panelId]?.().catch(() => {});
+
+      return `Panel ${panelId} is now displayed on the holographic HUD with live data.`;
+    },
+  };
+
   const startConversation = useCallback(async () => {
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -49,34 +146,21 @@ export default function VoiceAgent() {
       setWakeWordEnabled(false);
       setStatus('connecting');
 
-      // Use Conversation SDK directly (bypassing useConversation hook which drops clientTools)
+      // Install WebSocket interceptor BEFORE creating the conversation
+      // This catches client_tool_call messages that VoiceConversation fails to handle
+      cleanupInterceptorRef.current?.();
+      cleanupInterceptorRef.current = installToolInterceptor(clientToolHandlers);
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const options: any = {
         agentId,
+        // Still pass clientTools so the SDK knows about them (even though our interceptor handles them)
         clientTools: {
           show_panel: (parameters: { panel_id?: string }) => {
-            try {
-              const panelId = String(parameters?.panel_id || 'system');
-              console.log('[JARVIS] show_panel called:', panelId);
-
-              // Visible debug - add to transcript so user can see tool fired
-              useJarvisStore.getState().addTranscript('jarvis', `[HUD] Focusing panel: ${panelId.toUpperCase()}`);
-              useJarvisStore.getState().focusPanel(panelId);
-
-              const store = useJarvisStore.getState();
-              const refreshMap: Record<string, () => Promise<void>> = {
-                weather: store.fetchWeather,
-                markets: store.fetchMarkets,
-                system: store.fetchSystem,
-                inbox: store.fetchInbox,
-              };
-              refreshMap[panelId]?.().catch(() => {});
-
-              return `Panel ${panelId} is now displayed on the holographic HUD with live data. Current panel contents are visible.`;
-            } catch (e) {
-              console.error('[JARVIS] show_panel error:', e);
-              return 'Panel display updated.';
-            }
+            // This may or may not fire depending on VoiceConversation behavior
+            // The WebSocket interceptor is the primary handler
+            console.log('[JARVIS] SDK clientTools handler fired (backup):', parameters?.panel_id);
+            return clientToolHandlers.show_panel(parameters as Record<string, unknown>);
           },
         },
         onConnect: () => {
@@ -89,6 +173,9 @@ export default function VoiceAgent() {
           conversationRef.current = null;
           addTranscript('jarvis', 'Voice link terminated.');
           setWakeWordEnabled(true);
+          // Cleanup interceptor
+          cleanupInterceptorRef.current?.();
+          cleanupInterceptorRef.current = null;
         },
         onMessage: (message: { source: string; message: string }) => {
           const speaker = message.source === 'user' ? 'user' : 'jarvis';
@@ -97,9 +184,9 @@ export default function VoiceAgent() {
         onError: (error: string, context: unknown) => {
           const errorMsg = typeof error === 'string' ? error : String(error);
           console.error('[JARVIS] ElevenLabs error:', errorMsg, 'context:', JSON.stringify(context));
-          // Don't show tool-related errors to user — they're not fatal
+          // Don't show tool-related errors to user — they're handled by interceptor
           if (errorMsg.includes('client tool') || errorMsg.includes('Client tool')) {
-            console.warn('[JARVIS] Tool error (non-fatal):', errorMsg);
+            console.warn('[JARVIS] Tool error (handled by interceptor):', errorMsg);
             return;
           }
           addTranscript('jarvis', `Voice interface error. Reconnecting...`);
@@ -108,12 +195,8 @@ export default function VoiceAgent() {
           setIsSpeaking(mode === 'speaking');
         },
         onUnhandledClientToolCall: (toolCall: { tool_name?: string; parameters?: Record<string, unknown>; tool_call_id?: string }) => {
-          console.error('[JARVIS] UNHANDLED TOOL CALL - name:', toolCall.tool_name, 'params:', JSON.stringify(toolCall.parameters), 'id:', toolCall.tool_call_id);
-          addTranscript('jarvis', `[DEBUG] Unhandled tool: ${toolCall.tool_name}`);
-        },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        onDebug: (event: any) => {
-          console.log('[JARVIS] WS DEBUG:', JSON.stringify(event).substring(0, 300));
+          // This fires when SDK can't find the tool — but our interceptor already handled it
+          console.log('[JARVIS] SDK unhandled (interceptor handled it):', toolCall.tool_name);
         },
       };
 
@@ -124,6 +207,8 @@ export default function VoiceAgent() {
       addTranscript('jarvis', 'Failed to initialize voice interface. Check microphone permissions.');
       setStatus('disconnected');
       setWakeWordEnabled(true);
+      cleanupInterceptorRef.current?.();
+      cleanupInterceptorRef.current = null;
     }
   }, [addTranscript]);
 
