@@ -96,14 +96,24 @@ export default function VoiceAgent() {
         },
         onError: (error: string, context: unknown) => {
           const errorMsg = typeof error === 'string' ? error : String(error);
-          console.error('[JARVIS] ElevenLabs error:', errorMsg, context);
-          addTranscript('jarvis', `Error: ${errorMsg.substring(0, 150)}`);
+          console.error('[JARVIS] ElevenLabs error:', errorMsg, 'context:', JSON.stringify(context));
+          // Don't show tool-related errors to user — they're not fatal
+          if (errorMsg.includes('client tool') || errorMsg.includes('Client tool')) {
+            console.warn('[JARVIS] Tool error (non-fatal):', errorMsg);
+            return;
+          }
+          addTranscript('jarvis', `Voice interface error. Reconnecting...`);
         },
         onModeChange: ({ mode }: { mode: string }) => {
           setIsSpeaking(mode === 'speaking');
         },
-        onUnhandledClientToolCall: (toolCall: { tool_name?: string }) => {
-          console.warn('[JARVIS] Unhandled tool:', JSON.stringify(toolCall));
+        onUnhandledClientToolCall: (toolCall: { tool_name?: string; parameters?: Record<string, unknown>; tool_call_id?: string }) => {
+          console.error('[JARVIS] UNHANDLED TOOL CALL - name:', toolCall.tool_name, 'params:', JSON.stringify(toolCall.parameters), 'id:', toolCall.tool_call_id);
+          addTranscript('jarvis', `[DEBUG] Unhandled tool: ${toolCall.tool_name}`);
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onDebug: (event: any) => {
+          console.log('[JARVIS] WS DEBUG:', JSON.stringify(event).substring(0, 300));
         },
       };
 
