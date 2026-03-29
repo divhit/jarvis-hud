@@ -40,6 +40,12 @@ interface TranscriptEntry {
   timestamp: Date;
 }
 
+interface Notification {
+  message: string;
+  level: 'info' | 'success' | 'warning' | 'error';
+  timestamp: Date;
+}
+
 interface JarvisState {
   currentTime: Date;
   setCurrentTime: (time: Date) => void;
@@ -76,6 +82,9 @@ interface JarvisState {
 
   focusedPanel: string | null;
   focusPanel: (panel: string | null) => void;
+
+  notification: Notification | null;
+  showNotification: (message: string, level?: 'info' | 'success' | 'warning' | 'error') => void;
 }
 
 export const useJarvisStore = create<JarvisState>((set) => ({
@@ -238,5 +247,12 @@ export const useJarvisStore = create<JarvisState>((set) => ({
     if (panel) {
       setTimeout(() => set({ focusedPanel: null }), 8000);
     }
+  },
+
+  notification: null,
+  showNotification: (message, level = 'info') => {
+    set({ notification: { message, level, timestamp: new Date() } });
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => set({ notification: null }), 5000);
   },
 }));

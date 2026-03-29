@@ -110,7 +110,7 @@ export default function VoiceAgent() {
     return () => window.removeEventListener('keydown', handler);
   }, [addTranscript]);
 
-  // Client tool handlers
+  // Client tool handlers — these execute in-browser when the ElevenLabs agent calls them
   const clientToolHandlers: Record<string, (params: Record<string, unknown>) => string> = {
     show_panel: (parameters) => {
       const panelId = String(parameters?.panel_id || 'system');
@@ -130,6 +130,16 @@ export default function VoiceAgent() {
       refreshMap[panelId]?.().catch(() => {});
 
       return `Panel ${panelId} is now displayed on the holographic HUD with live data.`;
+    },
+
+    show_notification: (parameters) => {
+      const message = String(parameters?.message || '');
+      const level = String(parameters?.level || 'info') as 'info' | 'success' | 'warning' | 'error';
+      console.log('[JARVIS] show_notification:', level, message);
+
+      useJarvisStore.getState().showNotification(message, level);
+
+      return `Notification displayed: ${message}`;
     },
   };
 
@@ -157,10 +167,12 @@ export default function VoiceAgent() {
         // Still pass clientTools so the SDK knows about them (even though our interceptor handles them)
         clientTools: {
           show_panel: (parameters: { panel_id?: string }) => {
-            // This may or may not fire depending on VoiceConversation behavior
-            // The WebSocket interceptor is the primary handler
             console.log('[JARVIS] SDK clientTools handler fired (backup):', parameters?.panel_id);
             return clientToolHandlers.show_panel(parameters as Record<string, unknown>);
+          },
+          show_notification: (parameters: { message?: string; level?: string }) => {
+            console.log('[JARVIS] SDK show_notification fired (backup):', parameters?.message);
+            return clientToolHandlers.show_notification(parameters as Record<string, unknown>);
           },
         },
         onConnect: () => {
